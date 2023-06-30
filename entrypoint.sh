@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -eu
+set -u
 
 if "$INPUT_DISABLE_GLOBBING"; then
     set -o noglob;
@@ -48,7 +48,15 @@ _main() {
 
             _tag_commit
 
-            _push_to_github
+            max_retry=10
+            counter=0
+            # Keep running the _push_to_github function, until it succeeds.
+            # This is necessary, because the remote might be unavailable.
+            until _push_to_github || [[ counter -eq $max_retry ]]; do
+                _log "warning" "Pushing to GitHub failed. Trying again in 2 seconds.";
+                sleep 2;
+            done
+            # _push_to_github
         else
             _set_github_output "changes_detected" "false"
 
@@ -162,6 +170,13 @@ _push_to_github() {
 
     # shellcheck disable=SC2206
     INPUT_PUSH_OPTIONS_ARRAY=( $INPUT_PUSH_OPTIONS );
+    
+    # Pull the latest changes from the remote repository if `skip_pull`-input is false
+    if "$INPUT_SKIP_PULL"; then
+        _log "debug" "git-pull will not be executed.";
+    else
+        git pull origin $INPUT_BRANCH --rebase --allow-unrelated-histories || return 1;
+    fi
 
     if [ -z "$INPUT_BRANCH" ]
     then
@@ -169,15 +184,15 @@ _push_to_github() {
         if [ -n "$INPUT_TAGGING_MESSAGE" ]
         then
             _log "debug" "git push origin --tags";
-            git push origin --follow-tags --atomic ${INPUT_PUSH_OPTIONS:+"${INPUT_PUSH_OPTIONS_ARRAY[@]}"};
+            git push origin --follow-tags --atomic ${INPUT_PUSH_OPTIONS:+"${INPUT_PUSH_OPTIONS_ARRAY[@]}"} || return 1;
         else
             _log "debug" "git push origin";
-            git push origin ${INPUT_PUSH_OPTIONS:+"${INPUT_PUSH_OPTIONS_ARRAY[@]}"};
+            git push origin ${INPUT_PUSH_OPTIONS:+"${INPUT_PUSH_OPTIONS_ARRAY[@]}"} || return 1;
         fi
 
     else
         _log "debug" "Push commit to remote branch $INPUT_BRANCH";
-        git push --set-upstream origin "HEAD:$INPUT_BRANCH" --follow-tags --atomic ${INPUT_PUSH_OPTIONS:+"${INPUT_PUSH_OPTIONS_ARRAY[@]}"};
+        git push --set-upstream origin "HEAD:$INPUT_BRANCH" --follow-tags --atomic ${INPUT_PUSH_OPTIONS:+"${INPUT_PUSH_OPTIONS_ARRAY[@]}"} || return 1;
     fi
 }
 
